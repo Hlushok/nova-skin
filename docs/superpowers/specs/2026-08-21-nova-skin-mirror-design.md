@@ -1,6 +1,8 @@
 # Nova Skin upstream mirror design
 
-**Status:** approved for implementation planning on 2026-08-21
+**Status:** approved for implementation planning on 2026-08-21; corrected to
+use workflow-based Pages deployment after confirming GitHub's `GITHUB_TOKEN`
+build-trigger restriction
 
 ## Context
 
@@ -42,7 +44,7 @@ The downstream `main` branch will intentionally contain only:
 
 - `nova_skin.js` — byte-for-byte upstream payload;
 - `README.md` — purpose, upstream attribution, public URL, and sync behavior;
-- `.nojekyll` — direct static publication through GitHub Pages;
+- `.nojekyll` — copied with the plugin into the static Pages artifact;
 - `.github/workflows/sync-upstream.yml` — downstream-owned sync automation;
 - `docs/superpowers/` — the reviewed design and implementation plan.
 
@@ -67,7 +69,12 @@ is deliberately reduced to the Nova Skin distribution surface.
    workflow records the upstream commit SHA and SHA-256 digest in its commit
    message, commits through a dedicated automation identity, and pushes to
    downstream `main`.
-7. GitHub Pages rebuilds from the root of `main`, preserving the stable URL.
+7. The same trusted workflow creates a Pages artifact containing only
+   `nova_skin.js` and `.nojekyll`, then deploys it through GitHub's official
+   Pages Actions. This is required because GitHub documents that a commit pushed
+   with `GITHUB_TOKEN` does not trigger a branch-source Pages build. See
+   [Configuring a publishing source](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+   and [Using custom workflows with GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
 The workflow fetches only `nova_skin.js`; it never merges the complete upstream
 branch. Consequently, a new upstream plugin, configuration file, or workflow
@@ -100,8 +107,9 @@ separately approved external watchdog if needed. See GitHub's
 ## Security and permissions
 
 - The repository and Pages site remain public.
-- Workflow default permissions are read-only; the sync job receives only
-  `contents: write` so it can commit the mirrored file.
+- Workflow default permissions are read-only. The sync/build job receives
+  `contents: write` and `pages: read`; the isolated deployment job receives
+  `pages: write` and `id-token: write`, as required by GitHub Pages.
 - No repository secrets are required.
 - Downloaded JavaScript is parsed with `node --check` but never loaded, sourced,
   or executed by the workflow.
@@ -114,7 +122,9 @@ separately approved external watchdog if needed. See GitHub's
 
 The initial downstream `nova_skin.js` will be imported from a recorded upstream
 commit using the same download and validation rules as later synchronizations.
-GitHub Pages will be configured to publish from `main` at the repository root.
+GitHub Pages will be configured with `build_type: workflow`. The custom workflow
+will publish a clean artifact built from the validated file, so bot-created sync
+commits do not depend on branch-source build triggers.
 The README will clearly identify `amikdn/amikdn.github.io` as the upstream source
 and describe this repository as an automatic mirror/fork, not an independent
 rewrite.
