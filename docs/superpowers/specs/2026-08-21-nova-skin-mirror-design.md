@@ -76,6 +76,10 @@ is deliberately reduced to the Nova Skin distribution surface.
    [Configuring a publishing source](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
    and [Using custom workflows with GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
+Every successful hourly or manual run deploys the validated artifact, including
+a no-change run. A transient Pages failure therefore receives an automatic retry
+on the next schedule without manufacturing a Git commit.
+
 The workflow fetches only `nova_skin.js`; it never merges the complete upstream
 branch. Consequently, a new upstream plugin, configuration file, or workflow
 cannot enter the downstream repository through synchronization.
@@ -99,6 +103,7 @@ separately approved external watchdog if needed. See GitHub's
   content-related safety stop and protects users from receiving a file that a
   JavaScript engine cannot parse.
 - A no-change run creates no commit.
+- A no-change run still redeploys the current validated Pages artifact.
 - A push race is handled by re-running against the current downstream `main`;
   synchronization never force-pushes.
 - Action failures remain visible in the repository's Actions history. No
