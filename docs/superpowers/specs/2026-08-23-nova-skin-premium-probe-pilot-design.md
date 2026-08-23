@@ -1,6 +1,6 @@
 # Nova Skin manual pilot and Premium background probe design
 
-**Status:** approved in chat on 2026-08-23; pending written-spec review
+**Status:** approved by the user on 2026-08-23; ready for implementation
 
 ## Decision summary
 
