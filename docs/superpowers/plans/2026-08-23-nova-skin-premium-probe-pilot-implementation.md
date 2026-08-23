@@ -410,7 +410,7 @@ name: Sync Nova Skin
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 * * * *'
+    - cron: "17 * * * *"
 
 permissions:
   contents: read
@@ -520,7 +520,7 @@ $workflowText = Get-Content -LiteralPath $workflowPath -Raw -Encoding utf8
 $pins = [regex]::Matches($workflowText, 'uses:\s+([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@([0-9a-f]{40})')
 if ($pins.Count -ne 4) { throw "Expected four immutable Action pins, found $($pins.Count)." }
 if ($workflowText -match 'uses:\s+\S+@(v\d+|main|master)(\s|$)') { throw 'Mutable Action reference remains.' }
-if ($workflowText -notmatch "cron:\s+'17 \* \* \* \*'" -or $workflowText -notmatch 'workflow_dispatch:') {
+if ($workflowText -notmatch 'cron:\s+"17 \* \* \* \*"' -or $workflowText -notmatch 'workflow_dispatch:') {
   throw 'Required trigger is missing.'
 }
 git -C $repoRoot diff --check
