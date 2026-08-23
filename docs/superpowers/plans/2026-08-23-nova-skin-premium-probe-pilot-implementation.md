@@ -14,6 +14,7 @@
 
 - This plan supersedes docs/superpowers/plans/2026-08-21-nova-skin-mirror-implementation.md. Do not execute the older plan separately or use its stale six-file allowlist.
 - nova_skin.js must be byte-for-byte equal to the file at the recorded immutable upstream commit. Never append the bridge, minify the payload, or patch the accepted hook.
+- Preserve upstream line endings exactly. Run whitespace checks only on downstream-owned files; validate nova_skin.js with its recorded SHA-256 and node --check.
 - The mirror repository may contain exactly eight reviewed blobs after construction: the workflow, static marker, README, two specs, two plans, and nova_skin.js.
 - The Pages artifact from the mirror contains only nova_skin.js and .nojekyll.
 - The bridge repository changes only README.md and nova_skin_lampac.js. Do not add a package manifest, committed test fixture, preset, playlist, or another plugin.
@@ -336,7 +337,7 @@ try {
   $downloadPath = $null
 
   git -C $repoRoot add -- .nojekyll README.md nova_skin.js docs/superpowers
-  git -C $repoRoot diff --cached --check
+  git -C $repoRoot diff --cached --check -- . ':(exclude)nova_skin.js'
   if ($LASTEXITCODE -ne 0) { throw 'Foundation diff check failed.' }
   git -C $repoRoot commit -m 'feat: create minimal Nova Skin mirror' -m "Upstream-Commit: $upstreamCommit" -m "SHA256: $digest"
   if ($LASTEXITCODE -ne 0) { throw 'Foundation commit failed.' }
@@ -464,11 +465,9 @@ jobs:
           fi
           install -m 0644 "$DOWNLOAD_PATH" nova_skin.js.next
           mv -f nova_skin.js.next nova_skin.js
-          git diff --check -- nova_skin.js
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- nova_skin.js
-          git diff --cached --check
           short_sha="${UPSTREAM_COMMIT:0:12}"
           git commit -m "chore: sync nova_skin.js from upstream $short_sha" -m "Upstream-Commit: $UPSTREAM_COMMIT" -m "SHA256: $UPSTREAM_SHA256"
           git push origin HEAD:main
@@ -580,7 +579,7 @@ $remoteMain = (git -C $repoRoot ls-remote origin refs/heads/main).Split()[0]
 if ($remoteMain -notmatch '^[0-9a-f]{40}$') { throw 'Could not resolve remote main.' }
 git -C $repoRoot merge-base --is-ancestor $remoteMain HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Mirror push is not fast-forward.' }
-git -C $repoRoot diff --check origin/main..HEAD
+git -C $repoRoot diff --check origin/main..HEAD -- . ':(exclude)nova_skin.js'
 if ($LASTEXITCODE -ne 0) { throw 'Mirror pre-push diff check failed.' }
 
 $secretMatches = rg -n --hidden -g '!.git/**' '(ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|AKIA[0-9A-Z]{16}|BEGIN (RSA |OPENSSH |EC )?PRIVATE KEY|Authorization:\s*Bearer\s+\S+)' $repoRoot
