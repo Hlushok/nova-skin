@@ -1,0 +1,101 @@
+name: Sync Nova Skin
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-skin-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pages: read
+    steps:
+      - name: Checkout downstream
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+
+      - name: Resolve and validate immutable upstream file
+        id: upstream
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commit_sha="$(gh api --method GET repos/amikdn/amikdn.github.io/commits -f sha=main -f path=nova_skin.js -F per_page=1 --jq '.[0].sha')"
+          [[ "$commit_sha" =~ ^[0-9a-f]{40}$ ]]
+          download="$RUNNER_TEMP/nova_skin-$commit_sha.js"
+          curl --fail --silent --show-error --location --retry 3 "https://raw.githubusercontent.com/amikdn/amikdn.github.io/$commit_sha/nova_skin.js" --output "$download"
+          test -s "$download"
+          node --check "$download"
+          digest="$(sha256sum "$download" | cut -d' ' -f1)"
+          printf 'commit_sha=%s\n' "$commit_sha" >> "$GITHUB_OUTPUT"
+          printf 'sha256=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+          printf 'download_path=%s\n' "$download" >> "$GITHUB_OUTPUT"
+
+      - name: Commit changed upstream bytes
+        shell: bash
+        env:
+          DOWNLOAD_PATH: ${{ steps.upstream.outputs.download_path }}
+          UPSTREAM_COMMIT: ${{ steps.upstream.outputs.commit_sha }}
+          UPSTREAM_SHA256: ${{ steps.upstream.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          if cmp -s "$DOWNLOAD_PATH" nova_skin.js; then
+            echo "nova_skin.js already matches upstream $UPSTREAM_COMMIT"
+            exit 0
+          fi
+          install -m 0644 "$DOWNLOAD_PATH" nova_skin.js.next
+          mv -f nova_skin.js.next nova_skin.js
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- nova_skin.js
+          short_sha="${UPSTREAM_COMMIT:0:12}"
+          git commit -m "chore: sync nova_skin.js from upstream $short_sha" -m "Upstream-Commit: $UPSTREAM_COMMIT" -m "SHA256: $UPSTREAM_SHA256"
+          git push origin HEAD:main
+
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
+
+      - name: Prepare clean Pages artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e _site
+          install -d -m 0755 _site
+          install -m 0644 nova_skin.js _site/nova_skin.js
+          install -m 0644 .nojekyll _site/.nojekyll
+          test "$(find _site -type f | wc -l)" -eq 2
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy Pages
+    needs: sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
