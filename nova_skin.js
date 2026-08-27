@@ -612,6 +612,7 @@
         if (typeof object.up === 'function') {
           var up = object.up;
           object.up = function () {
+            pressMark();
             if (novaUp()) return;
             return up.apply(this, arguments);
           };
@@ -619,6 +620,7 @@
         if (typeof object.down === 'function') {
           var down = object.down;
           object.down = function () {
+            pressMark();
             if (novaDown()) return;
             return down.apply(this, arguments);
           };
@@ -626,6 +628,7 @@
         if (typeof object.right === 'function') {
           var right = object.right;
           object.right = function () {
+            pressMark();
             if (novaRight()) return;
             return right.apply(this, arguments);
           };
@@ -633,6 +636,7 @@
         if (typeof object.left === 'function') {
           var left = object.left;
           object.left = function () {
+            pressMark();
             if (novaLeft()) return;
             return left.apply(this, arguments);
           };
@@ -640,8 +644,10 @@
         if (typeof object.toggle === 'function') {
           var toggle = object.toggle;
           object.toggle = function () {
+            var frozen = (lockActive() || ui_open) ? scrollFreeze() : null;
             var result = toggle.apply(this, arguments);
             keepFocus();
+            scrollThaw(frozen);
             return result;
           };
         }
@@ -675,11 +681,19 @@
     try {
       var box = $(node).closest('.scroll');
       if (!box.length) return node;
+      var seat = box[0].offsetHeight || 0;
+      var drop = $(node).closest('.nova-drop');
+      if (drop.length) {
+        var deep = drop[0].offsetHeight || 0;
+        if (!seat || !deep) return node;
+        if (deep > seat - 4) return node;
+        return drop[0];
+      }
       var hero = $(node).closest('.nova-hero');
       if (!hero.length) return node;
       var high = hero[0].offsetHeight || 0;
       if (!high) return node;
-      if (high > (box[0].offsetHeight || 0) - 4) return node;
+      if (high > seat - 4) return node;
       return hero[0];
     } catch (e) {
       return node;
@@ -740,6 +754,85 @@
     } catch (e) {}
   }
 
+  function contentEnable() {
+    try {
+      var now = Lampa.Controller.enabled();
+      if (now && now.name === 'content') return;
+    } catch (e) {}
+    try { Lampa.Controller.enable('content'); } catch (e) {}
+  }
+
+  function scrollFreeze() {
+    if (!ui.root) return null;
+    try {
+      var body = ui.root.closest('.scroll').find('.scroll__body').first();
+      if (!body.length) return null;
+      body.addClass('notransition');
+      return body;
+    } catch (e) {}
+    return null;
+  }
+
+  function scrollThaw(body) {
+    if (!body) return;
+    setTimeout(function () {
+      try { body.removeClass('notransition'); } catch (e) {}
+    }, 0);
+  }
+
+  function dropRow() {
+    if (!ui_open || !ui.rows || !ui.rows.length) return null;
+    var row = ui.rows.find('.nova-drop').first();
+    return row.length ? row : null;
+  }
+
+  function dropShow() {
+    var row = dropRow();
+    if (!row) return;
+    try {
+      var node = row[0];
+      var box = row.closest('.scroll');
+      if (!box.length) return;
+      var seat = box[0].offsetHeight || 0;
+      var deep = node.offsetHeight || 0;
+      if (!seat || !deep) return;
+      var top = node.getBoundingClientRect().top - box[0].getBoundingClientRect().top;
+      var fits = deep <= seat - 4;
+      if (fits) {
+        if (top > -1 && top + deep <= seat + 1) return;
+      } else {
+        if (top > -1 && top <= 24) return;
+        if (last && $.contains(node, last) && scrollSeen(last) &&
+            last.getBoundingClientRect().top > node.getBoundingClientRect().top + 4) return;
+      }
+      var scroll = activeScroll(node);
+      if (scroll) {
+        try {
+          scroll.update(row, fits);
+          return;
+        } catch (e) {}
+      }
+      var body = box.find('.scroll__body').first();
+      if (!body.length) return;
+      var lift = fits ? Math.round((seat - deep) / 2) : 4;
+      var style = body[0].style['-webkit-transform'] || body[0].style.transform || '';
+      if (style.indexOf('translate') !== -1) {
+        var pair = style.match(/-?[\d.]+px,\s*(-?[\d.]+)px/);
+        var now = pair ? parseFloat(pair[1]) || 0 : 0;
+        var next = Math.min(0, Math.round(now - top + lift));
+        body[0].style['-webkit-transform'] = 'translate3d(0px, ' + next + 'px, 0px)';
+        body[0].style.transform = 'translate3d(0px, ' + next + 'px, 0px)';
+      } else {
+        box[0].scrollTop = Math.max(0, box[0].scrollTop + top - lift);
+      }
+    } catch (e) {}
+  }
+
+  function dropShowSoon() {
+    setTimeout(dropShow, 0);
+    setTimeout(dropShow, 140);
+  }
+
   var ui = {};
   var root = null;
   var host = null;
@@ -760,8 +853,10 @@
   var ui_focus = '';
   var ui_lock = '';
   var ui_lock_time = 0;
+  var ui_lock_span = 8000;
   var lock_timer = null;
   var focusing = false;
+  var press_at = 0;
   var gentle_until = 0;
   var ui_page = -1;
   var ui_page_focus = -1;
@@ -999,8 +1094,17 @@
     try { return Lampa.Utils.secondsToTime(seconds, true); } catch (e) { return ''; }
   }
 
-  function lockFocus(key) {
+  function pressMark() {
+    press_at = Date.now();
+  }
+
+  function pressNow() {
+    return press_at > 0 && Date.now() - press_at < 500;
+  }
+
+  function lockFocus(key, span) {
     ui_lock = key || '';
+    ui_lock_span = span || 8000;
     ui_lock_time = ui_lock ? Date.now() : 0;
     if (ui_lock) {
       ui_focus = ui_lock;
@@ -1012,6 +1116,7 @@
     if (lock_timer) return;
     lock_timer = setInterval(function () {
       if (!lockActive() || !inSkin()) return lockStopWatch();
+      if (pressNow()) return;
       var wanted = seek(ui_lock);
       if (!wanted || !wanted.length) return;
       if (wanted.hasClass('focus')) return;
@@ -1036,7 +1141,7 @@
 
   function lockActive() {
     if (!ui_lock) return false;
-    if (Date.now() - ui_lock_time > 8000) {
+    if (Date.now() - ui_lock_time > (ui_lock_span || 8000)) {
       lockRelease();
       return false;
     }
@@ -1058,7 +1163,11 @@
       last = e.target;
       scrollTo(e.target);
       if (lockActive() && key !== ui_lock) {
-        if (heroKey(key)) {
+        var stolen = false;
+        if (!focusing && !pressNow() && ui_open) {
+          try { stolen = $(e.target).closest('.nova-toolbar').length > 0; } catch (e2) { stolen = false; }
+        }
+        if ((heroKey(key) && !pressNow()) || stolen) {
           if (focusing) return;
           var back = seek(ui_lock);
           if (back && back.length && back[0] !== e.target) return focusNode(back);
@@ -2702,10 +2811,11 @@
     if (opening && key === 'source') probeRun();
     else probeStop();
 
-    lockFocus(ui_focus);
+    lockFocus(ui_focus, opening ? 0 : 900);
 
     restoreFocus(false);
-    try { Lampa.Controller.enable('content'); } catch (e) {}
+    contentEnable();
+    if (opening) dropShowSoon();
   }
 
   function selectedIndex(group) {
@@ -2814,7 +2924,8 @@
     buildRows();
     lockFocus(ui_focus);
     restoreFocus(false);
-    try { Lampa.Controller.enable('content'); } catch (e) {}
+    contentEnable();
+    dropShowSoon();
   }
 
   function extraRow() {
@@ -2912,10 +3023,15 @@
         ui_all_sources = true;
         var want = hidden.length ? focusKey(hidden[0]) : '';
         buildRows();
+        if (want && !seek(want)) want = '';
+        if (!want) {
+          var seat = dropEntry();
+          if (seat) want = $(seat).attr('data-nova-focus') || '';
+        }
         if (want) lockFocus(want);
         restoreFocus(false);
-        try { Lampa.Controller.enable('content'); } catch (e) {}
-        restoreFocus(false);
+        contentEnable();
+        dropShowSoon();
         probeRun();
       });
       row.append(more);
@@ -3118,6 +3234,10 @@
     if (wanted) return focusNode(wanted, true);
     if (preselectPage(ui_focus)) return true;
     if (fallback) return focusNode(fallback, true);
+    if (ui_open) {
+      var seat = dropEntry();
+      if (seat) return focusNode(seat, true);
+    }
     var chip = ui.rows.find('.nova-chip').first();
     if (chip.length) return focusNode(chip, true);
     return false;
@@ -3325,15 +3445,26 @@
     return entry ? focusNode(entry) : false;
   }
 
-  function dropUp() {
-    if (!dropFocused() || !ui_open) return false;
-    var above = rowStep('up');
-    if (above) return focusNode(above);
+  function dropOwner() {
+    if (!inSkin() || !ui_open) return null;
     var bar = ui.rows.find('.nova-toolbar');
     var chip = bar.find('[data-nova-focus="' + ui_open + '"]').first();
     if (!chip.length) chip = bar.find('.nova-chip--active').first();
     if (!chip.length) chip = bar.find('.nova-chip').first();
-    if (!chip.length) return false;
+    return chip.length ? chip : null;
+  }
+
+  function heroFocused() {
+    if (!inSkin() || !last) return false;
+    return !!(ui.hero_box && ui.hero_box.find(last).length);
+  }
+
+  function dropUp() {
+    if (!dropFocused() || !ui_open) return false;
+    var above = rowStep('up');
+    if (above) return focusNode(above);
+    var chip = dropOwner();
+    if (!chip) return false;
     return focusNode(chip);
   }
 
@@ -3361,7 +3492,13 @@
   function novaDown() {
     if (!inSkin()) return false;
     if (dropDown()) return true;
-    if (ui_open) return false;
+    if (ui_open) {
+      if (heroFocused()) {
+        var owner = dropOwner();
+        if (owner) return focusNode(owner);
+      }
+      return false;
+    }
     if (!toolbarFocused() || items.length < 2) return false;
     lockRelease();
     var target = pickResume(items);
@@ -3393,6 +3530,7 @@
     if (ui_open && dropFocused()) {
       var ahead = dropSide('right');
       if (ahead) return focusNode(ahead);
+      return true;
     }
     return toolbarFocus();
   }
@@ -3408,7 +3546,6 @@
       if (back) return focusNode(back);
       return true;
     }
-    if (toolbarFocused()) return true;
     return false;
   }
 
