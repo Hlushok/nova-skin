@@ -1155,13 +1155,21 @@
     lock_timer = null;
   }
 
+  function chipSeat(node) {
+    try {
+      return $(node).closest('.nova-toolbar,.nova-drop').length > 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function bind(element, enter, long) {
     element.on('hover:enter', function () {
       try { enter(); } catch (e) {}
     }).on('hover:focus', function (e) {
       var key = $(e.target).attr('data-nova-focus') || '';
       last = e.target;
-      scrollTo(e.target);
+      scrollTo(e.target, chipSeat(e.target));
       if (lockActive() && key !== ui_lock) {
         var stolen = false;
         if (!focusing && !pressNow() && ui_open) {
@@ -3209,7 +3217,7 @@
     if (gentle) gentleMark();
     last = node;
     ui_focus = node.getAttribute ? (node.getAttribute('data-nova-focus') || '') : '';
-    scrollTo(node, gentle);
+    scrollTo(node, gentle || chipSeat(node));
     focusing = true;
     try { Lampa.Controller.collectionFocus(node, host); } catch (e) {}
     focusing = false;
